@@ -10,6 +10,5 @@ Download the `.deb` from [Releases](https://github.com/551UK/Reynards-Default-Br
 
 Requires Reynard, PreferenceLoader and CCSupport.
 
-The original project also offered an iOS 14 version, but it did not work correctly on the iOS 14.3 device tested here. This separate rootful build fixes the link-opening problem and is confirmed working.
+The was someone who offered an iOS 14 version of this same concept, but it did not work correctly on the iOS 14.3 device tested here. This separate rootful build fixes the link-opening problem and is confirmed working.
 
-Based on [ReynardDefault by guacforlife](https://github.com/guacforlife/ReynardDefault). [GPL-3.0 licence](LICENSE).
