@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+    if [ -n "${CYDIA:-}" ]; then
+        eval "echo 'finish:respring' >&${CYDIA%% *}"
+    fi
+fi
+exit 0

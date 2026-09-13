@@ -1,46 +1,15 @@
-# ReynardDefault
+# Reynard Default Browser iOS 14
 
-A jailbreak tweak that redirects Safari URL opens to [Reynard](https://github.com/minh-ton/reynard-browser), a Firefox-based browser for iOS.
+Opens links destined for Safari, Chrome, Firefox or Brave in Reynard on a **rootful iOS 14 jailbreak**, including iOS 14.3.
 
-When enabled, any link that would normally open in Safari is intercepted at the SpringBoard level and opened in Reynard instead.
+Install Reynard, PreferenceLoader and CCSupport, then install the `.deb` and respring once. Enabled by default. Use **Settings → Reynard Default** or add **Reynard Default** in Control Centre settings to switch it on or off without respringing.
 
-## Features
+This redirects external browser links; it does not add Reynard to Apple's Default Browser menu. In-app browsers and universal links may keep their normal behaviour. Tapping another browser's app icon still opens that browser. If Reynard is missing, links keep their original destination.
 
-- **Safari redirect** — hooks `FBSystemServiceOpenApplicationRequest` in SpringBoard to swap the bundle identifier
-- **Settings toggle** — enable/disable from Settings via PreferenceLoader
-- **Control Centre toggle** — quick toggle via CCSupport module
+Requires a Reynard version supporting `reynard://open?url=…`. Built for arm64 and arm64e, with `iphoneos-arm` rootful packaging. Device testing on iOS 14.3 is still required.
 
-## Requirements
+## Build
 
-- A jailbroken iOS device — supports **rootless** (Dopamine/Roothide) and **rootful** (unc0ver, palera1n rootful)
-- [Reynard](https://github.com/minh-ton/reynard-browser) browser installed
-- [CCSupport](https://moreinfo.thebigboss.org/moreinfo/depiction.php?file=ccsupportDp) (for Control Centre toggle)
-- [PreferenceLoader](https://github.com/PoomSmart/PreferenceLoader) (for Settings pane)
+With Theos and the iOS 14.5 SDK installed: `make rootful THEOS=/path/to/theos`. GitHub Actions also builds and checks the package on each push. Download the `reynard-default-ios14-rootful` build artifact, or the `.deb` from Releases after a successful build on main.
 
-## Building
-
-Requires [Theos](https://theos.dev/).
-
-```bash
-export THEOS=~/theos
-cd ReynardDefault
-make rootless   # Dopamine / Roothide
-make rootful    # unc0ver / palera1n rootful
-make both       # builds both variants side-by-side
-```
-
-Builds land in `packages/` as `*_iphoneos-arm64.deb` (rootless) and `*_iphoneos-arm.deb` (rootful). Rootless debs installed via Sileo on Roothide are auto-patched; manual installs need the Roothide Patcher app first.
-
-## Tested Environments
-
-| Device | iOS | Jailbreak | Variant | Status |
-|--------|-----|-----------|---------|--------|
-| iPhone 14 Pro Max | 16.3.1 | Dopamine (Roothide) | rootless (`iphoneos-arm64`) | Working |
-| iPhone 7 | 15.7.7 | Dopamine | rootless (`iphoneos-arm64`) | Working |
-| iPhone 7 Plus | 14.8.1 | Taurine 1.1.7-3 | rootful (`iphoneos-arm`) | Working |
-
-Tweak injection via ElleKit (rootless) or substrate (rootful) on arm64 / arm64e.
-
-## License
-
-This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
+Based on [guacforlife/ReynardDefault](https://github.com/guacforlife/ReynardDefault), upstream commit `99bd11f5d71221868f59c572ec5f8814a643c75d`. Rootful build paths, complete URL encoding, URL/bundle setter ordering, installation fallback and Settings icon adapted for this port. Original author: guacforlife. Licensed under GPL-3.0; see LICENSE.

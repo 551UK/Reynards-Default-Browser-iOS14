@@ -1,0 +1,11 @@
+Package: com.551uk.reynarddefault14
+Name: Reynard Default Browser iOS 14
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Open browser links in Reynard. Includes Settings and Control Centre toggles.
+Maintainer: 551UK
+Author: guacforlife, 551UK
+Section: Tweaks
+Depends: mobilesubstrate, preferenceloader, com.opa334.ccsupport, firmware (>= 14.0), firmware (<< 15.0)
+Conflicts: com.guacforlife.reynarddefault
+Homepage: https://github.com/551UK/Reynards-Default-Browser-iOS14

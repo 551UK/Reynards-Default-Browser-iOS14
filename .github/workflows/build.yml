@@ -1,0 +1,67 @@
+name: Build rootful iOS 14 package
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: brew install make dpkg ldid
+      - name: Install Theos and iOS 14.5 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive --depth 1 https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git "$RUNNER_TEMP/sdks"
+          git -C "$RUNNER_TEMP/sdks" sparse-checkout set iPhoneOS14.5.sdk
+          mkdir -p "$RUNNER_TEMP/theos/sdks"
+          cp -R "$RUNNER_TEMP/sdks/iPhoneOS14.5.sdk" "$RUNNER_TEMP/theos/sdks/"
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
+      - name: Compile rootful package
+        run: gmake clean package FINALPACKAGE=1
+      - name: Verify package and binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb=(packages/*_iphoneos-arm.deb)
+          test "${#deb[@]}" -eq 1
+          test "$(dpkg-deb -f "${deb[0]}" Architecture)" = iphoneos-arm
+          dpkg-deb -x "${deb[0]}" "$RUNNER_TEMP/package"
+          dpkg-deb -e "${deb[0]}" "$RUNNER_TEMP/control"
+          test ! -e "$RUNNER_TEMP/package/var/jb"
+          test -x "$RUNNER_TEMP/control/postinst"
+          sh -n "$RUNNER_TEMP/control/postinst"
+          for binary in Library/MobileSubstrate/DynamicLibraries/ReynardDefault.dylib Library/PreferenceBundles/ReynardDefaultPrefs.bundle/ReynardDefaultPrefs Library/ControlCenter/Bundles/ReynardDefaultCC.bundle/ReynardDefaultCC; do
+            file="$RUNNER_TEMP/package/$binary"
+            test -s "$file"
+            lipo -verify_arch arm64 arm64e "$file"
+            otool -L "$file"
+            if otool -L "$file" | grep -E '/var/jb|/Users/az'; then exit 1; fi
+            otool -l "$file" | grep -A 5 LC_BUILD_VERSION
+          done
+          test -f "$RUNNER_TEMP/package/Library/PreferenceLoader/Preferences/ReynardDefaultPrefs.plist"
+          test -f "$RUNNER_TEMP/package/Library/PreferenceBundles/ReynardDefaultPrefs.bundle/SettingsIcon@2x.png"
+          find "$RUNNER_TEMP/package" -name '*.plist' -exec plutil -lint {} \;
+          shasum -a 256 "${deb[0]}" > packages/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reynard-default-ios14-rootful
+          path: packages/*
+      - name: Publish package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(awk '/^Version:/ {print $2}' control)
+          printf '%s\n' 'Rootful iOS 14 package. Install Reynard, PreferenceLoader and CCSupport, install the deb, then respring. Enabled by default; toggle in Settings or Control Centre. Compiled and package-checked; iOS 14.3 device testing is still required.' > "$RUNNER_TEMP/release-notes.txt"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            gh release upload "v$version" packages/*.deb packages/SHA256SUMS --clobber
+          else
+            gh release create "v$version" packages/*.deb packages/SHA256SUMS --target "$GITHUB_SHA" --title "Reynard Default Browser iOS 14 — $version" --notes-file "$RUNNER_TEMP/release-notes.txt" --prerelease
+          fi
