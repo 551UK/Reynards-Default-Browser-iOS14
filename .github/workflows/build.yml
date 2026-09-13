@@ -2,6 +2,9 @@ name: Build rootful iOS 14 package
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: write
@@ -66,9 +69,9 @@ jobs:
         run: |
           set -euo pipefail
           version=$(awk '/^Version:/ {print $2}' control)
-          printf '%s\n' 'Rootful iOS 14 package. Install Reynard, PreferenceLoader and CCSupport, install the deb, then respring. Enabled by default; toggle in Settings or Control Centre. Compiled and package-checked; iOS 14.3 device testing is still required.' > "$RUNNER_TEMP/release-notes.txt"
+          cp RELEASE_NOTES.md "$RUNNER_TEMP/release-notes.txt"
           if gh release view "v$version" >/dev/null 2>&1; then
             gh release upload "v$version" packages/*.deb packages/SHA256SUMS --clobber
           else
-            gh release create "v$version" packages/*.deb packages/SHA256SUMS --target "$GITHUB_SHA" --title "Reynard Default Browser iOS 14 — $version" --notes-file "$RUNNER_TEMP/release-notes.txt" --prerelease
+            gh release create "v$version" packages/*.deb packages/SHA256SUMS --target "$GITHUB_SHA" --title "Reynard Default Browser iOS 14 — $version" --notes-file "$RUNNER_TEMP/release-notes.txt" --latest
           fi

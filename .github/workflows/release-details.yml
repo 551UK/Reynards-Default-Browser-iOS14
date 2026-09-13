@@ -1,0 +1,21 @@
+name: Update release details
+on:
+  push:
+    branches: [main]
+    paths:
+      - RELEASE_NOTES.md
+      - '.github/workflows/release-details.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mark working build as latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit v1.0.0 --title 'Reynard Default Browser iOS 14 — 1.0.0' --notes-file RELEASE_NOTES.md --prerelease=false --latest
