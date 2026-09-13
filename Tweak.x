@@ -1,11 +1,18 @@
 // Based on guacforlife/ReynardDefault (GPL-3.0).
-// Rootful iOS 14 port: preserve complete URLs and handle either setter order.
+// Independent iOS 14 routing through FBSOpenApplicationOptions.
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
+#import <dlfcn.h>
 #import "Common/Common.h"
 
+@interface FBSOpenApplicationOptions : NSObject <NSCopying>
+@property (nonatomic, copy) NSDictionary *dictionary;
+@property (nonatomic, readonly) NSURL *url;
++ (instancetype)optionsWithDictionary:(NSDictionary *)dictionary;
+@end
+
 @interface FBSystemServiceOpenApplicationRequest : NSObject
-@property (nonatomic, copy) NSURL *URL;
+@property (nonatomic, copy) FBSOpenApplicationOptions *options;
 @property (nonatomic, copy) NSString *bundleIdentifier;
 @end
 
@@ -46,24 +53,44 @@ static NSURL *wrappedURL(NSURL *original) {
     return [NSURL URLWithString:[@"reynard://open?url=" stringByAppendingString:encoded]];
 }
 
+// iOS 14 stores the URL in options, not on the request itself.
+static FBSOpenApplicationOptions *redirectedOptions(FBSOpenApplicationOptions *options) {
+    if (![options respondsToSelector:@selector(url)] ||
+        ![options respondsToSelector:@selector(dictionary)]) return nil;
+    NSURL *wrapped = wrappedURL(options.url);
+    if (!wrapped) return nil;
+    NSDictionary *original = options.dictionary;
+    if (![original isKindOfClass:[NSDictionary class]]) return nil;
+    NSString * __unsafe_unretained *symbol = (NSString * __unsafe_unretained *)dlsym(
+        RTLD_DEFAULT, "FBSOpenApplicationOptionKeyPayloadURL");
+    NSString *key = symbol ? *symbol : @"__PayloadURL";
+    if (!key || !original[key]) return nil;
+    NSMutableDictionary *payload = [original mutableCopy];
+    payload[key] = wrapped;
+    Class optionsClass = [options class];
+    if (![optionsClass respondsToSelector:@selector(optionsWithDictionary:)]) return nil;
+    FBSOpenApplicationOptions *replacement = [optionsClass optionsWithDictionary:payload];
+    // Do not change the destination unless the replacement actually retained the URL.
+    return [replacement.url isEqual:wrapped] ? replacement : nil;
+}
+
 %hook FBSystemServiceOpenApplicationRequest
 
 - (void)setBundleIdentifier:(NSString *)bundleIdentifier {
     %orig;
-    // Some iOS versions populate URL before bundleIdentifier, others after it.
     if (isBrowser(bundleIdentifier) &&
-        [self respondsToSelector:@selector(URL)] &&
-        [self respondsToSelector:@selector(setURL:)] && self.URL) {
-        [self setURL:self.URL];
+        [self respondsToSelector:@selector(options)] &&
+        [self respondsToSelector:@selector(setOptions:)] && self.options) {
+        [self setOptions:self.options];
     }
 }
 
-- (void)setURL:(NSURL *)url {
+- (void)setOptions:(FBSOpenApplicationOptions *)options {
     if ([self respondsToSelector:@selector(bundleIdentifier)] &&
         isBrowser(self.bundleIdentifier) && redirectEnabled()) {
-        NSURL *wrapped = wrappedURL(url);
-        if (wrapped && reynardInstalled()) {
-            %orig(wrapped);
+        FBSOpenApplicationOptions *replacement = redirectedOptions(options);
+        if (replacement && reynardInstalled()) {
+            %orig(replacement);
             [self setBundleIdentifier:kReynardBundleID];
             return;
         }
