@@ -1,0 +1,31 @@
+name: Gecko Kiosk iOS dylib
+on:
+  push:
+    branches:
+      - gecko-kiosk-ipa-experiment
+    paths:
+      - 'gecko-kiosk/**'
+      - '.github/workflows/gecko-kiosk-ipa.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build arm64 iOS Gecko Kiosk extension
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -x objective-c -fobjc-arc -fblocks -dynamiclib \
+            -Wl,-install_name,@executable_path/Frameworks/GeckoKiosk.dylib \
+            gecko-kiosk/GeckoKiosk.m \
+            -framework Foundation -framework UIKit -lobjc \
+            -o gecko-kiosk/GeckoKiosk.dylib
+          file gecko-kiosk/GeckoKiosk.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeckoKiosk-iOS-arm64
+          path: gecko-kiosk/GeckoKiosk.dylib
+          retention-days: 7
