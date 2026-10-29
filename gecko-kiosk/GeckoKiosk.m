@@ -7,7 +7,7 @@ static NSURL *pendingURL;
 static BOOL configured = NO, attached = NO, firstAppearance = NO;
 static UIView *webContent = nil;
 static UIView *chromeView = nil, *tabOverview = nil;
-static IMP originalLoad = NULL, originalLayout = NULL, originalAppear = NULL;
+static IMP originalLoad = NULL, originalLayout = NULL, originalAppear = NULL, originalConnect = NULL, originalShortcut = NULL;
 static NSString *defaultHomepage = @"https://google.com";
 
 @interface GeckoURLContext : UIOpenURLContext @end
@@ -63,31 +63,67 @@ static void chooseIcon(UIViewController *c) {
     a.popoverPresentationController.sourceView=c.view;
     [c presentViewController:a animated:YES completion:nil];
 }
-static void showMenu(UIViewController *c) {
-    UIAlertController *a=[UIAlertController alertControllerWithTitle:@"Gecko App" message:@"Hidden settings · three-finger press and hold" preferredStyle:UIAlertControllerStyleActionSheet];
-    [a addAction:[UIAlertAction actionWithTitle:@"Change Website URL" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){promptURL(c);}]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Open Homepage" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){navigate(c,homepage());}]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Start New Session" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){
-        UIAlertController *confirm=[UIAlertController alertControllerWithTitle:@"Start New Session?" message:@"This will clear saved tabs on next launch, but keep website cookies. Force-close the app from the switcher and reopen it." preferredStyle:UIAlertControllerStyleAlert];
-        [confirm addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        [confirm addAction:[UIAlertAction actionWithTitle:@"Start Fresh Next Launch" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *y){
-            [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kReset];
-            alert(c,@"New Session Set",@"Force-close the app and reopen it to start fresh.");
-        }]];
-        [c presentViewController:confirm animated:YES completion:nil];
-    }]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Restore Last Session" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){
-        NSUserDefaults *d=NSUserDefaults.standardUserDefaults;
-        [d setBool:NO forKey:kReset];[d setObject:@"lastTab" forKey:@"default.HomepageSettings.openingScreen"];
-        alert(c,@"Session Restore Enabled",@"Saved tabs will be restored when you reopen the app.");
-    }]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Change App Icon" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){chooseIcon(c);}]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
-    a.popoverPresentationController.sourceView=c.view;
-    [c presentViewController:a animated:YES completion:nil];
+
+static void openIconPicker(UIViewController *controller) {
+    chooseIcon(controller);
 }
-static void gesture(id self,SEL sel,UILongPressGestureRecognizer *g) {
-    if (g.state==UIGestureRecognizerStateBegan && ![(UIViewController *)self presentedViewController]) showMenu((UIViewController *)self);
+
+// Home Screen Quick Actions. Launching or resuming via a quick action is the
+// ONLY path to the settings; there is no gesture or persistent UI in the app.
+static void performShortcut(id sceneDelegate, UIApplicationShortcutItem *item) {
+    if (!item) return;
+    UIWindow *window = nil;
+    if ([sceneDelegate respondsToSelector:@selector(window)])
+        window = ((UIWindow *(*)(id,SEL))objc_msgSend)(sceneDelegate,@selector(window));
+    UIViewController *controller = window.rootViewController;
+    if (!controller) return;
+    NSString *type = item.type;
+    if ([type isEqualToString:@"com.551uk.gecko.website"]) {
+        promptURL(controller);
+    } else if ([type isEqualToString:@"com.551uk.gecko.home"]) {
+        navigate(controller, homepage());
+    } else if ([type isEqualToString:@"com.551uk.gecko.icon"]) {
+        openIconPicker(controller);
+    } else if ([type isEqualToString:@"com.551uk.gecko.fresh"]) {
+        // Never delete a live SQLite database: queue a clean reset before the
+        // tab/session store is opened on the following process start.
+        NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+        [d setBool:YES forKey:kReset];
+        UIAlertController *confirm = [UIAlertController
+            alertControllerWithTitle:@"Start New Session"
+            message:@"The next launch will start at your homepage with no saved tabs. Your website logins and cookies are kept. Close this app from the app switcher and reopen it."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [confirm addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a){
+            [d setBool:NO forKey:kReset];
+        }]];
+        [confirm addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [controller presentViewController:confirm animated:YES completion:nil];
+    }
+}
+
+// When launched from the Home Screen quick-action menu while terminated,
+// iOS supplies the item inside UIScene.ConnectionOptions rather than invoking
+// performActionForShortcutItem on an already-running scene.
+static void sceneConnect(id self, SEL cmd, UIScene *scene,
+                         UISceneSession *session, UISceneConnectionOptions *options) {
+    ((void (*)(id,SEL,UIScene *,UISceneSession *,UISceneConnectionOptions *))originalConnect)
+        (self,cmd,scene,session,options);
+    UIApplicationShortcutItem *item = options.shortcutItem;
+    if (item) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.65*NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ performShortcut(self,item); });
+    }
+}
+static void sceneShortcut(id self, SEL cmd, UIWindowScene *scene,
+                          UIApplicationShortcutItem *item,
+                          void (^completionHandler)(BOOL)) {
+    performShortcut(self,item);
+    if (originalShortcut) {
+        ((void (*)(id,SEL,UIWindowScene *,UIApplicationShortcutItem *,void (^)(BOOL)))originalShortcut)
+            (self,cmd,scene,item,completionHandler);
+    } else if (completionHandler) {
+        completionHandler(YES);
+    }
 }
 static void fill(UIViewController *c) {
     if (!configured) return;
@@ -122,9 +158,6 @@ static void fill(UIViewController *c) {
 static void didLoad(id self,SEL _cmd) {
     ((void(*)(id,SEL))originalLoad)(self,_cmd);
     fill(self);
-    UILongPressGestureRecognizer *g=[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(geckoKioskGesture:)];
-    g.numberOfTouchesRequired=3;g.minimumPressDuration=0.7;g.cancelsTouchesInView=NO;
-    [[self view] addGestureRecognizer:g];
     [self setNeedsStatusBarAppearanceUpdate];
 }
 static void didLayout(id self,SEL _cmd){((void(*)(id,SEL))originalLayout)(self,_cmd);fill(self);}
@@ -168,11 +201,24 @@ __attribute__((constructor)) static void startKiosk(void){
             free(classes);
         }
         if (!cls)return;
-        class_addMethod(cls,@selector(geckoKioskGesture:),(IMP)gesture,"v@:@");
+
         replace(cls,@selector(viewDidLoad),(IMP)didLoad,&originalLoad);
         replace(cls,@selector(viewDidLayoutSubviews),(IMP)didLayout,&originalLayout);
         replace(cls,@selector(viewDidAppear:),(IMP)didAppear,&originalAppear);
         class_replaceMethod(cls,@selector(prefersStatusBarHidden),(IMP)statusHidden,"c@:");
         class_replaceMethod(cls,@selector(childForStatusBarHidden),(IMP)noChild,"@@:");
+        Class sceneClass = NSClassFromString(@"Reynard.SceneDelegate");
+        if (sceneClass) {
+            replace(sceneClass,@selector(scene:willConnectToSession:options:),(IMP)sceneConnect,&originalConnect);
+            SEL shortcutSelector = @selector(windowScene:performActionForShortcutItem:completionHandler:);
+            Method shortcutMethod = class_getInstanceMethod(sceneClass, shortcutSelector);
+            if (shortcutMethod) {
+                originalShortcut = method_getImplementation(shortcutMethod);
+                class_replaceMethod(sceneClass, shortcutSelector, (IMP)sceneShortcut, method_getTypeEncoding(shortcutMethod));
+            } else {
+                class_addMethod(sceneClass, shortcutSelector, (IMP)sceneShortcut, "v@:@@@?");
+            }
+        }
+
     }
 }
