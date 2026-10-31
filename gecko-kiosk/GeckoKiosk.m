@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
-static NSString *kHome = @"GeckoKiosk.homepage", *kReset = @"GeckoKiosk.resetNextLaunch", *kStarted = @"GeckoKiosk.didBootstrap";
+static NSString *kHome = @"GeckoKiosk.homepage", *kStarted = @"GeckoKiosk.didBootstrap";
 static NSURL *pendingURL;
 static BOOL configured = NO, attached = NO, firstAppearance = NO;
 static UIView *webContent = nil;
@@ -49,26 +49,7 @@ static void promptURL(UIViewController *c) {
     }]];
     [c presentViewController:a animated:YES completion:nil];
 }
-static void chooseIcon(UIViewController *c) {
-    UIApplication *app=UIApplication.sharedApplication;
-    if (!app.supportsAlternateIcons) {alert(c,@"Icons unavailable",@"This installation does not support alternate icons.");return;}
-    UIAlertController *a=[UIAlertController alertControllerWithTitle:@"Home Screen Icon" message:@"Choose a bundled icon. For your own image, replace the icon files when cloning this IPA." preferredStyle:UIAlertControllerStyleActionSheet];
-    NSDictionary<NSString *, NSString *> *icons=@{@"Ocean (Blue)":@"GeckoOcean",@"Forest (Green)":@"GeckoForest",@"Sunset (Orange)":@"GeckoSunset",@"Midnight (Dark)":@"GeckoMidnight"};
-    for (NSString *label in @[@"Ocean (Blue)",@"Forest (Green)",@"Sunset (Orange)",@"Midnight (Dark)"]) {
-        NSString *name=icons[label];
-        [a addAction:[UIAlertAction actionWithTitle:label style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){[app setAlternateIconName:name completionHandler:nil];}]];
-    }
-    [a addAction:[UIAlertAction actionWithTitle:@"Original" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x){[app setAlternateIconName:nil completionHandler:nil];}]];
-    [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    a.popoverPresentationController.sourceView=c.view;
-    [c presentViewController:a animated:YES completion:nil];
-}
-
-static void openIconPicker(UIViewController *controller) {
-    chooseIcon(controller);
-}
-
-// Home Screen Quick Actions. Launching or resuming via a quick action is the
+// Exactly two Home Screen Quick Actions. Launching or resuming via a quick action is the
 // ONLY path to the settings; there is no gesture or persistent UI in the app.
 static void performShortcut(id sceneDelegate, UIApplicationShortcutItem *item) {
     if (!item) return;
@@ -80,24 +61,11 @@ static void performShortcut(id sceneDelegate, UIApplicationShortcutItem *item) {
     NSString *type = item.type;
     if ([type isEqualToString:@"com.551uk.gecko.website"]) {
         promptURL(controller);
-    } else if ([type isEqualToString:@"com.551uk.gecko.home"]) {
-        navigate(controller, homepage());
-    } else if ([type isEqualToString:@"com.551uk.gecko.icon"]) {
-        openIconPicker(controller);
     } else if ([type isEqualToString:@"com.551uk.gecko.fresh"]) {
-        // Never delete a live SQLite database: queue a clean reset before the
-        // tab/session store is opened on the following process start.
-        NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-        [d setBool:YES forKey:kReset];
-        UIAlertController *confirm = [UIAlertController
-            alertControllerWithTitle:@"Start New Session"
-            message:@"The next launch will start at your homepage with no saved tabs. Your website logins and cookies are kept. Close this app from the app switcher and reopen it."
-            preferredStyle:UIAlertControllerStyleAlert];
-        [confirm addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a){
-            [d setBool:NO forKey:kReset];
-        }]];
-        [confirm addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        [controller presentViewController:confirm animated:YES completion:nil];
+        // A fresh start is immediate: navigate to the configured homepage.
+        // Normal launches still use Reynard's saved last-tab state.
+        // Cookies and logins remain intact.
+        navigate(controller, homepage());
     }
 }
 
@@ -187,12 +155,6 @@ __attribute__((constructor)) static void startKiosk(void){
         if (![json isKindOfClass:NSDictionary.class] || ![json[@"websiteApp"] boolValue]) return;
         defaultHomepage=json[@"homepage"] ?: defaultHomepage;configured=YES;
         NSUserDefaults *d=NSUserDefaults.standardUserDefaults;
-        if ([d boolForKey:kReset]) {
-            [d setBool:NO forKey:kReset];[d setBool:NO forKey:kStarted];
-            NSURL *support=[[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
-            NSURL *tabs=[[support URLByAppendingPathComponent:@"AppData"] URLByAppendingPathComponent:@"TabManagement"];
-            [NSFileManager.defaultManager removeItemAtURL:tabs error:nil];
-        }
         [d setObject:@"lastTab" forKey:@"default.HomepageSettings.openingScreen"];
         Class cls=NSClassFromString(@"Reynard.BrowserViewController");
         if (!cls) {
